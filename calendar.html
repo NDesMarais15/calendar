@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Calendar App</title>
+	<link rel="stylesheet" type="text/css" href="stylesheet.css">
+	<script type="text/javascript">
+		
+		// Set calendar to current month
+		var today = new Date();
+		var currentMonth = new Month(today.getFullYear(), today.getMonth());
+		
+		// Create token and set to "not logged in" state
+		var mastertoken = null;
+		var hasloggedin = false;
+		var firstTime = true;
+
+		// Var to determine whether or not this is a shared calendar
+		var sharedCalendar = false;
+		
+		// Check if this is shared calendar page
+		var url = window.location.href;
+		var regex = /\?view=([A-Za-z0-9 ])+/g;
+		var match = regex.exec(url);
+		
+		// Not a shared calendar
+		if(!match){
+			// Do nothing, no get parameters in the URL
+		}
+		
+		// Shared calendar
+		else{
+			sharedCalendar = true;	
+			hasloggedin = true;
+			
+			// Use AJAX to set session variable to the calendar of the original user
+			var sharePost = "share_user=" + encodeURIComponent(match[0].substr(6));
+			var sessionAjax = new XMLHttpRequest();
+			sessionAjax.open("POST", "sharesession.php", true); 
+			sessionAjax.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+			sessionAjax.addEventListener("load", function(event){
+				var shareResult = JSON.parse(event.target.responseText);
+
+				if(!shareResult){
+					alert("Unable to pull up calendar");
+					throw new Error("Unable to pull up calendar");
+				}
+			}, false);
+			sessionAjax.send(sharePost);
+		}
+
+		
+		// Function for rendering calendar
+		function populate_table(){
+			var weeks = currentMonth.getWeeks();
+
+			// Hide bottom rows based on number of weeks in the month
+			if(weeks.length === 4)
+			{
+				document.getElementById("row4").style.visibility = "hidden";
+				document.getElementById("row5").style.visibility = "hidden";
+			}
+			else if(weeks.length === 5)
+			{
+				document.getElementById("row5").style.visibility = "hidden";
+				document.getElementById("row4").style.visibility = "visible";
+			}
+			else{
+					document.getElementById("row5").style.visibility = "visible";
+					document.getElementById("row4").style.visibility = "visible";
+			}
+			
+			// Iterate through each week
+			for(w = 0; w < weeks.length; ++w){
+				
+				var days = weeks[w].getDates();
+				var rowCount = "row" + w;
+
+
+				
+				// First text area is at index 1 (<tr> is at index 0)
+				var currentChild = 1;
+
+				// Iterate through each day
+				for(var d = 0; d < days.length; ++d){
+					
+					// Find correct day and format
+					currentDay = document.getElementById(rowCount).childNodes[currentChild];
+					var dayText = days[d].toISOString();
+					dayText = dayText.substr(0, 5) + dayText.substr(5, 5);
+					currentDay.textContent = dayText;
+					
+					// Set id to its formatted date so it can be called later
+					currentDay.id = dayText;
+					 
+					if(hasloggedin === true){
+						
+						//Render all events which are for this user, they CAN edit and delete these
+						if(firstTime && w === 0 && d === 0){
+							
+							// If this is not a shared calendar, allow editing, deletion, and sharing
+							if(!sharedCalendar){
+								
+								// Add HTML for features that a logged in user gets
+								document.getElementById("inputform").innerHTML += "<input type='button' id='share_btn' value='Share Calendar'>";
+								document.getElementById("inputform").innerHTML += "<div id='share_link_description'></div>";
+								document.getElementById("inputform").innerHTML += "<a id='share_event'></a>";
+								document.getElementById("inputform").innerHTML += "<br><br>";
+								document.getElementById("inputform").innerHTML += "<input type=button value='Email Share Link' id='email_btn'>";
+								document.getElementById("inputform").innerHTML += "<div id='email_link_loc'></div>";
+								document.getElementById("inputform").innerHTML += "<br><br>";
+								document.getElementById("inputform").innerHTML += "<h4 id='header'>Add new event</h4>";
+								document.getElementById("inputform").innerHTML += "<br><br>";
+								document.getElementById("inputform").innerHTML += "<label>Title:</label>";
+								document.getElementById("inputform").innerHTML += "<input type='text' id='title'>";
+								document.getElementById("inputform").innerHTML += "<br><br>";
+								document.getElementById("inputform").innerHTML += "<label>Date:</label>";
+								document.getElementById("inputform").innerHTML += "<input type='date' id='date'>";
+								document.getElementById("inputform").innerHTML += "<br><br>";
+								document.getElementById("inputform").innerHTML += "<label>Time:</label>";
+								document.getElementById("inputform").innerHTML += "<input type='time' id='time'>";
+								document.getElementById("inputform").innerHTML += "<br><br>";
+								document.getElementById("inputform").innerHTML += "<label>Event priority (ordered from greatest to least): </label>";
+								document.getElementById("inputform").innerHTML += "<select id='priority'><option value='First'>First (red)</option><option value='Second'>Second (orange)</option><option value='Third'>Third (blue)</option><option value='Fourth'>Fourth (green)</option><option value='None'>None (black)</option></select>";
+								document.getElementById("inputform").innerHTML += "<br><br>";
+								document.getElementById("inputform").innerHTML += "<input type='button' id='add_btn' value='Add Event'>";
+								
+								// Add event listeners for buttons
+								document.getElementById("add_btn").addEventListener("click", addEventToDatabase, false);						
+								document.getElementById("share_btn").addEventListener("click", shareEvent, false);
+								document.getElementById("email_btn").addEventListener("click", createEmailLink, false);
+							}
+								document.getElementById("next_month_btn").addEventListener("click", goForwardOneMonth, false);
+								document.getElementById("prev_month_btn").addEventListener("click", goBackwardOneMonth, false);
+
+							// Var to make sure HTML content only gets added once
+							firstTime = false;
+						}
+						
+						// Use AJAX to get events from the database
+						var dataString = "date=" + encodeURIComponent(dayText) + "&token=" + encodeURIComponent(mastertoken);
+						xml = new XMLHttpRequest();
+						xml.open("POST", "getmyevent.php", true);
+						xml.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+						// When AJAX loads, call addEvent function
+						xml.addEventListener("load", addEvent, false);
+						
+						// Event listeners for login and register buttons
+						document.getElementById("login_btn").addEventListener("click", login, false);
+						document.getElementById("register_btn").addEventListener("click", loginRegister, false);
+						
+						xml.send(dataString);
+					}
+					
+					// Iterate by two so that it goes to the next whitespace node (skip <td>)
+					currentChild += 2;
+				}
+			}
+		}
+		
+		// Advance calendar one month
+		function goForwardOneMonth(){
+			currentMonth = currentMonth.nextMonth();
+			populate_table();
+		}
+		
+		// Go back one month in calendar
+		function goBackwardOneMonth(){
+			currentMonth = currentMonth.prevMonth();
+			populate_table();
+		}
+		
+		// Delete an event from the database (and calendar)
+		function deleteEntry(event){
+			var titleToDelete = event.srcElement.parentNode.childNodes[0].childNodes[0].textContent;
+
+			var dateToDelete = event.srcElement.parentNode.parentNode.id;
+
+			var dataString = "date=" + encodeURIComponent(dateToDelete) + "&name=" + encodeURIComponent(titleToDelete);
+			
+			// Format AJAX request
+			var xmlHttp = new XMLHttpRequest();
+			xmlHttp.open("POST", "deleteevent.php", true); 
+			xmlHttp.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+			
+			// Call function that verifies log in and reloads calendar
+			xmlHttp.addEventListener("load", function(event){
+				var jsonData = JSON.parse(event.target.responseText);
+				
+				// If deletion is successful
+				if(jsonData.success){
+					alert("Event deleted!");
+					//mastertoken = jsonData.tokenval;
+					populate_table();
+
+				}
+				
+				// If deletion fails
+				else{
+					alert("Event was not deleted.  " + jsonData.message);
+				}	
+			}, false);
+			
+			xmlHttp.send(dataString);
+		}
+		
+		// Edit an event in the database and calendar
+		function editEntry(event){
+			// Referenced: https://www.w3schools.com/jsref/met_win_prompt.asp
+			
+			// Get old information
+			var olddate = event.srcElement.parentNode.parentNode.id;
+			var oldtitle = event.srcElement.parentNode.childNodes[0].childNodes[0].textContent;
+			var oldtime = event.srcElement.parentNode.childNodes[0].childNodes[2].textContent;
+
+			// Use prompts to get new information
+			
+			var date = prompt("Enter the updated date (in the format yyyy-mm-dd)", olddate);
+			var dateRegex = /\d{4}-\d{2}-\d{2}/;
+			
+			// Filter input
+			if(!dateRegex.test(date))
+			{
+				alert("Invalid date");
+				return;
+			}
+			
+			var time = prompt("Enter the updated time (in military time, i.e. ##:##)", oldtime);
+			var timeRegex = /\d{2}:\d{2}/;
+			
+			// Filter input
+			if(!timeRegex.test(time))
+			{
+				alert("Invalid time");
+				return;
+			}
+			
+			var title = prompt("Enter the updated title", oldtitle);
+			
+			// No need to filter priority because it will default to 0 (black text)
+			var priority = prompt("Enter the updated priority, either 0,1,2,3, or 4 (4 is lowest priority and 1 is highest, while 0 is no priority)", 0);
+			
+			// Create post string for AJAX
+			var postString = "title=" + encodeURIComponent(title) + "&date=" + encodeURIComponent(date) + "&time=" +
+				encodeURIComponent(time)+"&oldtitle=" + encodeURIComponent(oldtitle) + "&olddate=" + encodeURIComponent(olddate) +
+				"&oldtime=" + encodeURIComponent(oldtime)+"&priority="+encodeURIComponent(priority);
+
+			// Format AJAX request
+			var xmlHttp = new XMLHttpRequest();
+			xmlHttp.open("POST", "editentry.php", true); 
+			xmlHttp.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+			
+			// Call function that verifies log in and reloads calendar
+			xmlHttp.addEventListener("load", function(event){
+				var jsonData = JSON.parse(event.target.responseText);
+				
+				// If editing is successful
+				if(jsonData.success){
+					alert("Event successfully edited!");
+					//mastertoken = jsonData.tokenval;
+					populate_table();
+
+				}
+				
+				// If editing fails
+				else{
+					alert("Event was not edited.  " + jsonData.message);
+				}
+				
+			}, false);
+			xmlHttp.send(postString);
+			
+		}
+		
+		// Function for providing a share link
+		function shareEvent(){
+			
+			// Format AJAX request
+			var xmlHttp = new XMLHttpRequest();
+			xmlHttp.open("POST", "sharecalendar.php", true); 
+			xmlHttp.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+			
+			// Call function that verifies log in and reloads calendar
+			xmlHttp.addEventListener("load", function(event){
+				var jsonData = JSON.parse(event.target.responseText);
+				
+				// If sharing is successful
+				if(jsonData.success){
+					url = window.location.href + "?view=" + jsonData.username;
+					document.getElementById("share_event").setAttribute("href", url);
+					document.getElementById("share_event").appendChild(document.createTextNode(url));
+					//mastertoken = jsonData.tokenval;
+
+				}
+				// If sharing fails
+				else{
+					alert("Calendar sharing failed");
+				}	
+			}, false);
+			xmlHttp.send(null);
+		}
+
+		// Function for registering new user
+		function loginRegister(){
+			
+			// Get data from forms
+			var username = document.getElementById("register_username").value; 
+			var password = document.getElementById("register_password").value;
+			
+			// Make sure they entered username and pass
+			if(!username || !password){
+				alert("You must enter both a username and a password");
+				return;
+			}
+			
+			// POST data for AJAX request
+			var dataString = "username=" + encodeURIComponent(username) + "&password=" + encodeURIComponent(password);
+			
+			// Format AJAX request
+			var xmlHttp = new XMLHttpRequest();
+			xmlHttp.open("POST", "redirectregister.php", true); 
+			xmlHttp.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+			
+			// Call function that verifies log in and reloads calendar
+			xmlHttp.addEventListener("load", function(event){
+				var jsonData = JSON.parse(event.target.responseText);
+				
+				// If registration is successful
+				if(jsonData.success){
+					alert("You've been registered!");
+					mastertoken = jsonData.tokenval;
+					hasloggedin = true;
+					populate_table();
+				}
+				
+				// If registration fails
+				else{
+					alert("You were not registered.  " + jsonData.message);
+				}	
+			}, false);
+			
+			xmlHttp.send(dataString);
+		}
+		
+		// Function for logging in user
+		function login(){
+			var username = document.getElementById("login_username").value; 
+			var password = document.getElementById("login_password").value;
+			//var token = document.getElementById("hidden_token").value;
+			
+			// Make sure they entered username and pass
+			if(!username || !password){
+				alert("You must enter both a username and a password");
+				return;
+			}
+			
+			// POST data
+			var dataString = "username=" + encodeURIComponent(username) + "&password=" + encodeURIComponent(password);
+			//+"&token=" + encodeURIComponent(token);
+			var xmlHttp = new XMLHttpRequest();
+			
+			// Open an AJAX request for the login redirect page
+			xmlHttp.open("POST", "redirectpage.php", true); 
+			xmlHttp.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+			xmlHttp.addEventListener("load", function(event){
+				var jsonData = JSON.parse(event.target.responseText);
+				
+				// If login is successful 
+				if(jsonData.success){  
+					alert("You've been logged in!");
+					mastertoken = jsonData.tokenval;
+					hasloggedin = true;
+					populate_table();
+
+				}
+				
+				// If login fails
+				else{
+					alert("You were not logged in.  " + jsonData.message);
+				}	
+		}, false);
+			xmlHttp.send(dataString);
+		}
+
+		// Function for adding events to database
+		function addEventToDatabase(){
+			// Get event information
+			var title = document.getElementById("title").value;
+			var date = document.getElementById("date").value;
+			var time = document.getElementById("time").value;
+			var priority = document.getElementById("priority").value;
+			
+			// Make sure user doesn't input empty event
+			if(!title || !date || !time || !priority){
+				alert("You must input all information in order to submit an event.");
+				return;
+			}
+			
+			// Send post data
+			var postString = "title=" + title + "&date=" + date + "&time=" + time+ "&priority=" + priority;
+			
+			// Create AJAX request for adding event to the database
+			xhr = new XMLHttpRequest();
+			xhr.open("POST", "events.php", true);
+			xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+			xhr.send(postString);
+			populate_table();
+		}
+		
+		// Function for adding an event to the calendar
+		function addEvent(event){
+			// Get JSON from event
+			jsondata = JSON.parse(event.target.responseText);
+			
+			// Check date and node for date
+			
+			if(!jsondata.date){
+				return;
+			}
+			
+			var dayNode = document.getElementById(jsondata.date);
+			if(!dayNode){
+				return;
+			}
+			
+			if(jsondata.success){
+				var i = 0;
+				var numEvents = jsondata.events.length;
+				mastertoken = jsondata.tokenval;
+				var color = "black";
+
+				while(i < numEvents){
+					
+					// Change color of text based on priority of event
+					
+					color = "black";
+					if(jsondata.priority[i] == 1){
+						color = "red";
+					}
+					else if(jsondata.priority[i] == 2){
+						color="orange";
+					}
+					else if(jsondata.priority[i] == 3){
+						color = "blue";
+					}
+					else if(jsondata.priority[i] == 4){
+						color = "green";
+					}
+
+					
+					// Create a div for each event so that it can easily be deleted and edited
+					var currentEventDiv = document.createElement("div");
+					currentEventDiv.setAttribute("id", jsondata.date + i);
+
+					// Add the event info to the event div
+					var currentEventText = document.createElement("p");
+					currentEventText.appendChild(document.createTextNode(jsondata.events[i]));
+					currentEventText.appendChild(document.createTextNode(" "));
+					currentEventText.appendChild(document.createTextNode(jsondata.times[i]));
+					currentEventText.setAttribute("style", "color:" + color + ";");
+					currentEventDiv.appendChild(currentEventText);
+
+					// Only add delete and edit buttons if not a shared calendar
+					if(!sharedCalendar){
+						var deleteButton = document.createElement("input");
+						deleteButton.setAttribute("type", "button");
+						deleteButton.setAttribute("id", jsondata.events[i] + " delete_btn");
+						deleteButton.setAttribute("value", "Delete");
+
+						var editButton = document.createElement("input");
+						editButton.setAttribute("type", "button");
+						editButton.setAttribute("id", jsondata.events[i] + " edit_btn");
+						editButton.setAttribute("value", "Edit");
+						
+						currentEventDiv.appendChild(deleteButton);
+						currentEventDiv.appendChild(editButton);
+					}
+
+					// Add the whole event to its correct date
+					document.getElementById(jsondata.date).appendChild(currentEventDiv);
+					
+					// Add event listeners for add and delete buttons
+					if(!sharedCalendar){
+						document.getElementById(jsondata.events[i] + " delete_btn").addEventListener("click", deleteEntry, false);
+						document.getElementById(jsondata.events[i] + " edit_btn").addEventListener("click", editEntry, false);
+					}
+					i++;
+				}
+			}
+			
+			// If query failed
+			else{
+				alert(jsondata.message);
+			}
+		}
+		
+		// Function for mailto link
+		function createEmailLink(){
+
+			// Ask user for email address
+			var emailAddress = prompt("Input the desired email address");
+			
+			// Add a description of the link
+			document.getElementById("share_link_description").appendChild(
+				document.createTextNode("Click the link to email a link to your calendar."));
+
+			// Create mailto link
+			var emailLink = document.createElement("a");
+			emailLink.setAttribute("href", "mailto:" + emailAddress + "?subject=MyCalendar" +
+								   "&body=" + document.getElementById("share_event").textContent);
+			emailLink.appendChild(document.createTextNode("Email your calendar"));
+			document.getElementById("email_link_loc").appendChild(emailLink);
+
+		}
+
+
+// Calendar math functions from wiki
+		(function () {
+			"use strict";
+
+	/* Date.prototype.deltaDays(n)
+	 * 
+	 * Returns a Date object n days in the future.
+	 */
+	 Date.prototype.deltaDays = function (n) {
+		// relies on the Date object to automatically wrap between months for us
+		return new Date(this.getFullYear(), this.getMonth(), this.getDate() + n);
+	};
+
+	/* Date.prototype.getSunday()
+	 * 
+	 * Returns the Sunday nearest in the past to this date (inclusive)
+	 */
+	 Date.prototype.getSunday = function () {
+	 	return this.deltaDays(-1 * this.getDay());
+	 };
+	}());
+		function Week(initial_d) {
+			"use strict";
+
+			this.sunday = initial_d.getSunday();
+
+
+			this.nextWeek = function () {
+				return new Week(this.sunday.deltaDays(7));
+			};
+
+			this.prevWeek = function () {
+				return new Week(this.sunday.deltaDays(-7));
+			};
+
+			this.contains = function (d) {
+				return (this.sunday.valueOf() === d.getSunday().valueOf());
+			};
+
+			this.getDates = function () {
+				var dates = [];
+				for(var i=0; i<7; i++){
+					dates.push(this.sunday.deltaDays(i));
+				}
+				return dates;
+			};
+		}
+		function Month(year, month) {
+			"use strict";
+
+			this.year = year;
+			this.month = month;
+
+			this.nextMonth = function () {
+				return new Month( year + Math.floor((month+1)/12), (month+1) % 12);
+			};
+
+			this.prevMonth = function () {
+				return new Month( year + Math.floor((month-1)/12), (month+11) % 12);
+			};
+
+			this.getDateObject = function(d) {
+				return new Date(this.year, this.month, d);
+			};
+
+			this.getWeeks = function () {
+				var firstDay = this.getDateObject(1);
+				var lastDay = this.nextMonth().getDateObject(0);
+
+				var weeks = [];
+				var currweek = new Week(firstDay);
+				weeks.push(currweek);
+				while(!currweek.contains(lastDay)){
+					currweek = currweek.nextWeek();
+					weeks.push(currweek);
+				}
+
+				return weeks;
+			};
+		}
+
+		// Load calendar as soon as page loads
+		document.addEventListener("DOMContentLoaded", populate_table, false);
+	</script>
+</head>
+<body>
+	
+	<!-- Login form -->
+	<label>Username: <input type="text" id = "login_username" name="login_uname"/></label>
+	<label>Password: <input type="text" id = "login_password" name="login_pword"/></label>
+	<input type="submit" id="login_btn" value = "Login"/>
+	<input type="hidden" id="hidden_token" name="token" value="<?php echo $_SESSION['token'];?>" />
+	<br>
+	
+	<!-- Register form -->
+	<label>Username: <input type="text" id="register_username" name="register_uname"/></label>
+	<label>Password: <input type="text" id="register_password" name="register_pword"/></label>
+	<input type="submit" id="register_btn" value="Register"/>
+	
+	<!-- Calendar table -->
+	<!--Referenced: https://developer.mozilla.org/en-US/docs/Web/HTML/Element/table-->
+	<table>
+		<colgroup span="7"></colgroup>
+		<tr>
+			<th>Sunday</th>
+			<th>Monday</th>
+			<th>Tuesday</th>
+			<th>Wednesday</th>
+			<th>Thursday</th>
+			<th>Friday</th>
+			<th>Saturday</th>
+		</tr>
+		<tr id="row0">
+			<td></td>
+			<td></td>
+			<td></td>
+			<td></td>
+			<td></td>
+			<td></td>
+			<td></td>
+		</tr>
+		<tr id="row1">
+			<td></td>
+			<td></td>
+			<td></td>
+			<td></td>
+			<td></td>
+			<td></td>
+			<td></td>
+		</tr>
+		<tr id="row2">
+			<td></td>
+			<td></td>
+			<td></td>
+			<td></td>
+			<td></td>
+			<td></td>
+			<td></td>
+		</tr>
+		<tr id="row3">
+			<td></td>
+			<td></td>
+			<td></td>
+			<td></td>
+			<td></td>
+			<td></td>
+			<td></td>
+		</tr>
+		<tr id="row4">
+			<td></td>
+			<td></td>
+			<td></td>
+			<td></td>
+			<td></td>
+			<td></td>
+			<td></td>
+		</tr>
+		<tr id="row5">
+			<td></td>
+			<td></td>
+			<td></td>
+			<td></td>
+			<td></td>
+			<td></td>
+			<td></td>
+		</tr>
+	</table>
+	
+	<!-- Month buttons -->
+	<div id="inputform">
+		<input type='button' id='prev_month_btn' value='Previous Month'>
+		<input type='button' id='next_month_btn' value='Next Month'>
+	</div>
+	<script type="text/javascript">
+
+		
+		// Change the month when the "next" button is pressed
+		document.getElementById("next_month_btn").addEventListener("click", function(){
+			currentMonth = currentMonth.nextMonth();
+				populate_table();
+			}, false);
+		
+		// Change the month when the "prev" button is pressed
+		document.getElementById("prev_month_btn").addEventListener("click", function(){
+			currentMonth = currentMonth.prevMonth(); 
+				populate_table();
+			}, false);
+		
+		// Event listeners for login and register buttons
+		document.getElementById("login_btn").addEventListener("click", login, false);
+		document.getElementById("register_btn").addEventListener("click", loginRegister, false);
+		
+	</script>
+	
+
+</body>
+</html>
